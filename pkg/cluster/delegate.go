@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/hashicorp/memberlist"
 	"github.com/prometheus/client_golang/prometheus"
 	"time"
@@ -152,19 +153,19 @@ func (d *delegate) MergeRemoteState(buf []byte, _ bool) {
 
 // NotifyJoin is called if a peer joins the cluster.
 func (d *delegate) NotifyJoin(n *memberlist.Node) {
-	log.Debugf("received", "NotifyJoin", "node", n.Name, "addr", n.Address())
+	level.Debug(d.logger).Log("received", "NotifyJoin", "node", n.Name, "addr", n.Address())
 	d.Peer.peerJoin(n)
 }
 
 // NotifyLeave is called if a peer leaves the cluster.
 func (d *delegate) NotifyLeave(n *memberlist.Node) {
-	log.Debugf("received", "NotifyLeave", "node", n.Name, "addr", n.Address())
+	level.Debug(d.logger).Log("received", "NotifyLeave", "node", n.Name, "addr", n.Address())
 	d.Peer.peerLeave(n)
 }
 
 // NotifyUpdate is called if a cluster peer gets updated.
 func (d *delegate) NotifyUpdate(n *memberlist.Node) {
-	log.Debugf("received", "NotifyUpdate", "node", n.Name, "addr", n.Address())
+	level.Debug(d.logger).Log("received", "NotifyUpdate", "node", n.Name, "addr", n.Address())
 	d.Peer.peerUpdate(n)
 }
 

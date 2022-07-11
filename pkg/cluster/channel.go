@@ -15,6 +15,7 @@ package cluster
 
 import (
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/memberlist"
 	"github.com/prometheus/client_golang/prometheus"
@@ -105,7 +106,7 @@ func (c *Channel) handleOverSizedMessages(stopc chan struct{}) {
 					c.oversizeGossipMessageSentTotal.Inc()
 					start := time.Now()
 					if err := c.sendOversize(n, b); err != nil {
-						log.Debugf("msg", "failed to send reliable", "key", c.key, "node", n, "err", err)
+						level.Debug(c.logger).Log("msg", "failed to send reliable", "key", c.key, "node", n, "err", err)
 						c.oversizeGossipMessageFailureTotal.Inc()
 						return
 					}
@@ -131,7 +132,7 @@ func (c *Channel) Broadcast(b []byte) {
 		select {
 		case c.msgc <- b:
 		default:
-			log.Debugf("msg", "oversized gossip channel full")
+			level.Debug(c.logger).Log("msg", "oversized gossip channel full")
 			c.oversizeGossipMessageDroppedTotal.Inc()
 		}
 	} else {

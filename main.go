@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"github.com/go-kit/log"
-	"github.com/gossip-example/pkg/cluster"
+	"github.com/go-kit/log/level"
+	"github.com/prometheus/common/promlog"
+	"github.com/woodliu/gossip-example/pkg/cluster"
 	_ "go.uber.org/automaxprocs"
 	"os"
 	"os/signal"
@@ -24,6 +26,9 @@ import (
 使用环境变量namespace+name+app_id来获取各个endpoint的信息
 初始化使用默认的认领时间和聚合时间(或从配置库中获取)，后续可以通过API修改同步相关配置
 */
+
+var promlogConfig = promlog.Config{}
+
 func main() {
 	bigArr := make([]byte, 1024*1024*1024)
 	runtime.KeepAlive(bigArr)
@@ -41,8 +46,9 @@ func main() {
 		"192.168.80.131:7946": {},
 		"192.168.80.132:7946": {},
 	}
+	logger := promlog.New(&promlogConfig)
 	err := peer.Create(
-		log.WithField("component", "cluster"),
+		log.With(logger, "component", "cluster"),
 		cluster.DefaultPushPullInterval,
 		cluster.DefaultGossipInterval,
 		cluster.DefaultTCPTimeout,
@@ -51,7 +57,7 @@ func main() {
 	)
 
 	if err != nil {
-		log.Warnf("msg", "unable to join gossip mesh", "err", err)
+		level.Warn(logger).Log("msg", "unable to join gossip mesh", "err", err)
 	}
 
 	err = peer.Join(
@@ -59,13 +65,13 @@ func main() {
 		cluster.DefaultReconnectTimeout,
 	)
 	if err != nil {
-		log.Warnf("msg", "unable to join gossip mesh", "err", err)
+		level.Warn(logger).Log("msg", "unable to join gossip mesh", "err", err)
 	}
 	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), cluster.DefaultPushPullInterval)
 	defer func() {
 		timeoutCancel()
 		if err := peer.Leave(10 * time.Second); err != nil {
-			log.Warnf("msg", "unable to leave gossip mesh", "err", err)
+			level.Warn(logger).Log("msg", "unable to leave gossip mesh", "err", err)
 		}
 	}()
 	go peer.Settle(timeoutCtx, cluster.DefaultGossipInterval*10)

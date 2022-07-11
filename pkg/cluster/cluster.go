@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,6 +66,8 @@ type Peer struct {
 	peerLeaveCounter           prometheus.Counter
 	peerUpdateCounter          prometheus.Counter
 	peerJoinCounter            prometheus.Counter
+
+	logger log.Logger
 }
 
 func GetEnv() (string, string, map[string]string) {
@@ -233,12 +236,13 @@ type logWriter struct {
 }
 
 func (l *logWriter) Write(b []byte) (int, error) {
-	log.Debugf("memberlist", string(b))
+	level.Debug(l.l).Log("memberlist", string(b))
 	return len(b), nil
 }
 
 func NewPeer() *Peer {
 	p := &Peer{
+
 		stopc:          make(chan struct{}),
 		readyc:         make(chan struct{}),
 		peerInformerCh: make(chan PodEvent),
@@ -305,6 +309,7 @@ func (p *Peer) Create(
 		retransmit = 3
 	}
 	p.delegate = newDelegate(p, retransmit)
+	p.logger = l
 
 	cfg := memberlist.DefaultLANConfig()
 	cfg.Delegate = p.delegate
@@ -383,12 +388,12 @@ func (p *Peer) Join(
 ) error {
 	n, err := p.mlist.Join(p.copyPeerAddress())
 	if err != nil {
-		log.Warnf("msg", "failed to join cluster", "err", err)
+		level.Warn(p.logger).Log("msg", "failed to join cluster", "err", err)
 		if reconnectInterval != 0 {
-			log.Infof("msg", fmt.Sprintf("will retry joining cluster every %v", reconnectInterval.String()))
+			level.Info(p.logger).Log("msg", fmt.Sprintf("will retry joining cluster every %v", reconnectInterval.String()))
 		}
 	} else {
-		log.Debugf("msg", "joined cluster", "peers", n)
+		level.Debug(p.logger).Log("msg", "joined cluster", "peers", n)
 	}
 
 	go func() {
@@ -440,10 +445,10 @@ func (p *Peer) reconnect() {
 		// peerJoin().
 		if _, err := p.mlist.Join([]string{pr.Address()}); err != nil {
 			p.failedReconnectionsCounter.Inc()
-			log.Debugf("reconnect result", "failure", "peer", pr.Node, "addr", pr.Address(), "err", err)
+			level.Debug(p.logger).Log("reconnect result", "failure", "peer", pr.Node, "addr", pr.Address(), "err", err)
 		} else {
 			p.reconnectionsCounter.Inc()
-			log.Debugf("reconnect result", "success", "peer", pr.Node, "addr", pr.Address())
+			level.Debug(p.logger).Log("reconnect result", "success", "peer", pr.Node, "addr", pr.Address())
 		}
 	}
 }
@@ -459,7 +464,7 @@ func (p *Peer) removeFailedPeers(timeout time.Duration) {
 		if pr.leaveTime.Add(timeout).After(now) {
 			keep = append(keep, pr)
 		} else {
-			log.Debugf("msg", "failed peer has timed out", "peer", pr.Node, "addr", pr.Address())
+			level.Debug(p.logger).Log("msg", "failed peer has timed out", "peer", pr.Node, "addr", pr.Address())
 			p.peers.Delete(pr.Name)
 		}
 	}
@@ -470,7 +475,7 @@ func (p *Peer) removeFailedPeers(timeout time.Duration) {
 func (p *Peer) refresh() {
 	resolvedPeers, err := resolvePeers(context.Background(), p.copyPeerAddress(), p.advertiseAddr.Load(), &net.Resolver{}, false)
 	if err != nil {
-		log.Debugf("peers", p.KnownPeers, "err", err)
+		level.Debug(p.logger).Log("peers", p.KnownPeers, "err", err)
 		return
 	}
 
@@ -487,10 +492,10 @@ func (p *Peer) refresh() {
 		if !isPeerFound {
 			if _, err := p.mlist.Join([]string{peer}); err != nil {
 				p.failedRefreshCounter.Inc()
-				log.Warnf("refresh result", "failure", "addr", peer, "err", err)
+				level.Warn(p.logger).Log("refresh result", "failure", "addr", peer, "err", err)
 			} else {
 				p.refreshCounter.Inc()
-				log.Debugf("refresh result", "success", "addr", peer)
+				level.Debug(p.logger).Log("refresh result", "success", "addr", peer)
 			}
 		}
 	}
@@ -553,7 +558,7 @@ func (p *Peer) Ready() bool {
 // Leave the cluster, waiting up to timeout.
 func (p *Peer) Leave(timeout time.Duration) error {
 	close(p.stopc)
-	log.Debugf("msg", "leaving cluster")
+	level.Debug(p.logger).Log("msg", "leaving cluster")
 	return p.mlist.Leave(timeout)
 }
 
@@ -562,7 +567,7 @@ func (p *Peer) SendData(msg []byte) {
 		pr := value.(peer)
 		err := p.mlist.SendReliable(pr.Node, msg)
 		if nil != err {
-			log.Errorf("send msg to %s failed,err:%s", pr.Name, err.Error())
+			level.Error(p.logger).Log("send msg to %s failed,err:%s", pr.Name, err.Error())
 		}
 		return true
 	})
@@ -608,7 +613,7 @@ func (p *Peer) peerJoin(n *memberlist.Node) {
 	p.peerJoinCounter.Inc()
 
 	if oldStatus == StatusFailed {
-		log.Debugf("msg", "peer rejoined", "peer", pr.Node)
+		level.Debug(p.logger).Log("msg", "peer rejoined", "peer", pr.Node)
 		p.failedPeers = removeOldPeer(p.failedPeers, pr.Address())
 	}
 }
@@ -642,7 +647,7 @@ func (p *Peer) peerLeave(n *memberlist.Node) {
 	p.peers.Store(n.Address(), pr)
 
 	p.peerLeaveCounter.Inc()
-	log.Debugf("msg", "peer left", "peer", pr.Node)
+	level.Debug(p.logger).Log("msg", "peer left", "peer", pr.Node)
 }
 
 func (p *Peer) peerUpdate(n *memberlist.Node) {
@@ -661,7 +666,7 @@ func (p *Peer) peerUpdate(n *memberlist.Node) {
 	p.peers.Store(n.Address(), pr)
 
 	p.peerUpdateCounter.Inc()
-	log.Debugf("msg", "peer updated", "peer", pr.Node)
+	level.Debug(p.logger).Log("msg", "peer updated", "peer", pr.Node)
 }
 
 // WaitReady Wait until Settle() has finished.
@@ -677,7 +682,7 @@ func (p *Peer) WaitReady(ctx context.Context) error {
 // Settle 等待一段时间，用于等待成员加入集群上线  TODO:NumOkayRequired的值需要调整
 func (p *Peer) Settle(ctx context.Context, interval time.Duration) {
 	const NumOkayRequired = 3
-	log.Infof("msg", "Waiting for gossip to settle...", "interval", interval)
+	level.Info(p.logger).Log("msg", "Waiting for gossip to settle...", "interval", interval)
 	start := time.Now()
 	nPeers := 0
 	nOkay := 0
@@ -686,7 +691,7 @@ func (p *Peer) Settle(ctx context.Context, interval time.Duration) {
 		select {
 		case <-ctx.Done():
 			elapsed := time.Since(start)
-			log.Infof("msg", "gossip not settled but continuing anyway", "polls", totalPolls, "elapsed", elapsed)
+			level.Info(p.logger).Log("msg", "gossip not settled but continuing anyway", "polls", totalPolls, "elapsed", elapsed)
 			close(p.readyc)
 			return
 		case <-time.After(interval):
@@ -694,15 +699,15 @@ func (p *Peer) Settle(ctx context.Context, interval time.Duration) {
 		elapsed := time.Since(start)
 		n := len(p.Peers())
 		if nOkay >= NumOkayRequired {
-			log.Infof("msg", "gossip settled; proceeding", "elapsed", elapsed)
+			level.Info(p.logger).Log("msg", "gossip settled; proceeding", "elapsed", elapsed)
 			break
 		}
 		if n == nPeers {
 			nOkay++
-			log.Infof("msg", "gossip looks settled", "elapsed", elapsed)
+			level.Debug(p.logger).Log("msg", "gossip looks settled", "elapsed", elapsed)
 		} else {
 			nOkay = 0
-			log.Infof("msg", "gossip not settled", "polls", totalPolls, "before", nPeers, "now", n, "elapsed", elapsed)
+			level.Info(p.logger).Log("msg", "gossip not settled", "polls", totalPolls, "before", nPeers, "now", n, "elapsed", elapsed)
 		}
 		nPeers = n
 		totalPolls++
