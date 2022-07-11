@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"github.com/go-kit/log"
-	"github.com/gossop-example/pkg/cluster"
+	"github.com/gossip-example/pkg/cluster"
 	_ "go.uber.org/automaxprocs"
 	"os"
 	"os/signal"
